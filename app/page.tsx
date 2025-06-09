@@ -14,26 +14,45 @@ interface ContributionDay {
 }
 
 export default function GitHubTimeTravelApp() {
-  const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set())
-  const [showScript, setShowScript] = useState(false)
+  const currentYear = new Date().getUTCFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [selectedDates, setSelectedDates] = useState<Map<string, number>>(new Map());
+  const [showScript, setShowScript] = useState(false);
 
-  // Generate contribution graph data for the past year
+  // Generate a list of years (e.g., last 10 years)
+  const years = useMemo(() => {
+    const arr = [];
+    for (let y = currentYear; y >= currentYear - 9; y--) {
+      arr.push(y);
+    }
+    return arr;
+  }, [currentYear]);
+
+  // Generate contribution graph data for the selected year
   const contributionData = useMemo(() => {
-    const data: ContributionDay[] = []
-    const today = new Date()
-    const oneYearAgo = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate())
+    const data: ContributionDay[] = [];
+    const year = selectedYear;
+    const start = new Date();
+    start.setUTCFullYear(year, 0, 1);
+    start.setUTCHours(0, 0, 0, 0);
+    const end = new Date();
+    end.setUTCFullYear(year, 11, 31);
+    end.setUTCHours(0, 0, 0, 0);
+    const d = new Date(start);
 
-    for (let d = new Date(oneYearAgo); d <= today; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split("T")[0]
+    while (d <= end) {
+      const dateStr = d.toISOString().split('T')[0];
+      const fake = selectedDates.get(dateStr) || 0;
       data.push({
         date: dateStr,
-        count: Math.floor(Math.random() * 5), // Random contribution count 0-4
-        selected: selectedDates.has(dateStr),
-      })
+        count: fake,
+        selected: fake > 0,
+      });
+      d.setUTCDate(d.getUTCDate() + 1);
     }
 
-    return data
-  }, [selectedDates])
+    return data;
+  }, [selectedDates, selectedYear])
 
   // Group data by weeks for display
   const weeklyData = useMemo(() => {
@@ -69,59 +88,65 @@ export default function GitHubTimeTravelApp() {
     return weeks
   }, [contributionData])
 
-  const toggleDate = (date: string) => {
-    if (!date) return
-
-    const newSelected = new Set(selectedDates)
-    if (newSelected.has(date)) {
-      newSelected.delete(date)
+  // Update toggleDate to increment on left click, decrement on right click
+  const toggleDate = (date: string, increment = 1) => {
+    if (!date) return;
+    const newSelected = new Map(selectedDates);
+    const current = newSelected.get(date) || 0;
+    if (increment > 0) {
+      newSelected.set(date, current + 1);
+    } else if (current > 1) {
+      newSelected.set(date, current - 1);
     } else {
-      newSelected.add(date)
+      newSelected.delete(date);
     }
-    setSelectedDates(newSelected)
+    setSelectedDates(newSelected);
   }
 
-  const getContributionColor = (count: number, selected: boolean) => {
-    if (selected) return "bg-purple-600 border-purple-700"
-    if (count === 0) return "bg-gray-100 border-gray-200"
-    if (count === 1) return "bg-green-200 border-green-300"
-    if (count === 2) return "bg-green-300 border-green-400"
-    if (count === 3) return "bg-green-500 border-green-600"
-    return "bg-green-700 border-green-800"
+  const getContributionColor = (count: number, selected: boolean, real: number, fake: number) => {
+    // Only fake is used now
+    if (fake === 0) return "bg-gray-100 border-gray-200";
+    if (fake === 1) return "bg-blue-200 border-blue-300";
+    if (fake === 2) return "bg-blue-300 border-blue-400";
+    if (fake === 3) return "bg-blue-500 border-blue-600";
+    return "bg-blue-700 border-blue-800"; // 4 or more
   }
 
   const generateScript = () => {
-    const sortedDates = Array.from(selectedDates).sort()
+    const sortedDates = Array.from(selectedDates.entries()).sort(([a], [b]) => a.localeCompare(b));
+    const script = `@echo off
+REM GitHub Time Travel Batch Script
+REM This script creates fake commits for selected dates
 
-    const script = `#!/bin/bash
-# GitHub Time Travel Script
-# This script creates fake commits for selected dates
+REM Make sure you're in a git repository
+if not exist .git (
+    echo Error: Not a git repository. Run 'git init' first.
+    exit /b 1
+)
 
-# Make sure you're in a git repository
-if [ ! -d ".git" ]; then
-    echo "Error: Not a git repository. Run 'git init' first."
-    exit 1
-fi
-
-echo "Creating fake commits for ${sortedDates.length} selected dates..."
+echo Creating fake commits for ${sortedDates.reduce((a, [_, c]) => a + c, 0)} commits...
 
 ${sortedDates
-  .map(
-    (date) => `
-# Commit for ${date}
-echo "Fake commit for ${date}" > temp_file_${date.replace(/-/g, "")}.txt
-git add temp_file_${date.replace(/-/g, "")}.txt
-GIT_AUTHOR_DATE="${date}T12:00:00" GIT_COMMITTER_DATE="${date}T12:00:00" git commit -m "Time travel commit for ${date}"
-rm temp_file_${date.replace(/-/g, "")}.txt`,
-  )
-  .join("\n")}
+      .map(
+        ([date, count]) =>
+          Array.from({ length: count })
+            .map(
+              (_, i) => `
+REM Commit ${i + 1} for ${date}
+echo Fake commit ${i + 1} for ${date} > temp_file_${date.replace(/-/g, "")}_${i + 1}.txt
+git add temp_file_${date.replace(/-/g, "")}_${i + 1}.txt
+set GIT_AUTHOR_DATE=${date}T12:00:00
+set GIT_COMMITTER_DATE=${date}T12:00:00
+git commit -m "Time travel commit ${i + 1} for ${date}"
+del temp_file_${date.replace(/-/g, "")}_${i + 1}.txt`
+            )
+            .join("\r\n")
+      )
+      .join("\r\n")}
 
-echo "✅ Created ${sortedDates.length} fake commits!"
-echo "📝 Remember to push your changes: git push origin main"
-echo "⚠️  Warning: This is for educational purposes only!"
-`
-
-    return script
+echo Remember to push your changes: git push origin main (or master)
+`;
+    return script;
   }
 
   const copyScript = async () => {
@@ -129,16 +154,16 @@ echo "⚠️  Warning: This is for educational purposes only!"
   }
 
   const downloadScript = () => {
-    const script = generateScript()
-    const blob = new Blob([script], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "github-time-travel.sh"
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    const script = generateScript();
+    const blob = new Blob([script], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "github-time-travel.bat";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -146,27 +171,51 @@ echo "⚠️  Warning: This is for educational purposes only!"
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4">
+    <div className="min-h-screen bg-gradient-to-br p-4 from-gray-600 to-gray-800">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
           <div className="flex items-center justify-center gap-2 mb-4">
-            <GitBranch className="h-8 w-8 text-purple-600" />
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
+            <GitBranch className="h-8 w-8 text-blue-400" />
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-500 to-blue-600 bg-clip-text text-transparent">
               GitHub Time Travel
             </h1>
           </div>
-          <p className="text-gray-600 max-w-2xl mx-auto">
+          <p className="text-gray-200 max-w-2xl mx-auto">
             Click on the contribution graph squares to select dates, then generate a script to create fake GitHub commit
             history. Perfect for filling gaps in your contribution timeline!
           </p>
+          <p className="text-blue-300 text-sm mt-2">
+            Tip: <b>Left click</b> to add a commit, <b>right click</b> to undo.
+          </p>
+        </div>
+
+        {/* Year Picker */}
+        <div className="flex justify-center gap-4">
+          <label htmlFor="year-select" className="text-gray-200 font-semibold flex items-center gap-2">
+            <Calendar className="h-4 w-4" />
+            Year:
+            <select
+              id="year-select"
+              className="ml-2 px-2 py-1 rounded bg-gray-700 text-white border border-gray-500"
+              value={selectedYear}
+              onChange={e => {
+                setSelectedYear(Number(e.target.value));
+                setSelectedDates(new Map());
+              }}
+            >
+              {years.map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
         </div>
 
         {/* Stats */}
         <div className="flex justify-center gap-4">
           <Badge variant="secondary" className="px-4 py-2">
             <Calendar className="h-4 w-4 mr-2" />
-            {selectedDates.size} dates selected
+            {Array.from(selectedDates.values()).reduce((a, b) => a + b, 0)} commits on {selectedDates.size} dates
           </Badge>
         </div>
 
@@ -178,13 +227,13 @@ echo "⚠️  Warning: This is for educational purposes only!"
               Contribution Graph
             </CardTitle>
             <CardDescription>
-              Click on squares to select dates for fake commits. Purple squares are selected.
+              Click on squares to select dates for fake commits. Blue squares are selected.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
+            <div className="space-y-4 space-x-9">
               {/* Month labels */}
-              <div className="flex justify-between text-xs text-gray-500 px-4">
+              <div className="flex justify-between text-xs text-gray-500 px-3 ps-9 pe-7">
                 {months.map((month) => (
                   <span key={month}>{month}</span>
                 ))}
@@ -192,7 +241,7 @@ echo "⚠️  Warning: This is for educational purposes only!"
 
               <div className="flex gap-2">
                 {/* Day labels */}
-                <div className="flex flex-col gap-1 text-xs text-gray-500 pr-2">
+                <div className="flex flex-col gap-1 text-xs text-gray-500 pr-2 pt-0.5 space-y-1">
                   {days.map((day, index) => (
                     <div key={day} className="h-3 flex items-center">
                       {index % 2 === 1 && <span>{day}</span>}
@@ -204,21 +253,32 @@ echo "⚠️  Warning: This is for educational purposes only!"
                 <div className="flex gap-1">
                   {weeklyData.map((week, weekIndex) => (
                     <div key={weekIndex} className="flex flex-col gap-1">
-                      {week.map((day, dayIndex) => (
+                      {week.map((day, dayIndex) => day.date ? (
                         <button
                           key={`${weekIndex}-${dayIndex}`}
-                          onClick={() => toggleDate(day.date)}
-                          className={`w-3 h-3 border rounded-sm transition-all hover:scale-110 ${
-                            day.date ? "cursor-pointer" : "cursor-default"
-                          } ${getContributionColor(day.count, day.selected)}`}
+                          onClick={e => {
+                            if (e.type === "click" && !e.shiftKey) toggleDate(day.date, 1);
+                          }}
+                          onContextMenu={e => {
+                            e.preventDefault();
+                            toggleDate(day.date, -1);
+                          }}
+                          className={`w-4 h-4 border rounded-sm transition-all hover:scale-110 ${day.date ? "cursor-pointer" : "cursor-default"
+                            } ${getContributionColor(day.count, day.selected, 0, selectedDates.get(day.date) || 0)}`}
                           title={
                             day.date
-                              ? `${day.date} - ${day.count} contributions${day.selected ? " (selected)" : ""}`
+                              ? `${day.date} - ${day.count} commit${day.count !== 1 ? "s" : ""}${day.selected ? " (selected)" : ""}`
                               : ""
                           }
-                          disabled={!day.date}
-                        />
-                      ))}
+                        >
+                          {day.count > 0 ? (
+                            <span className="text-[10px] font-bold text-white">{day.count}</span>
+                          ) : null}
+                        </button>)
+
+                        : (<div key={`${weekIndex}-${dayIndex}`} className="w-4 h-4" />)
+
+                      )}
                     </div>
                   ))}
                 </div>
@@ -228,13 +288,11 @@ echo "⚠️  Warning: This is for educational purposes only!"
               <div className="flex items-center justify-between text-xs text-gray-500">
                 <span>Less</span>
                 <div className="flex gap-1 items-center">
-                  <div className="w-3 h-3 bg-gray-100 border border-gray-200 rounded-sm"></div>
-                  <div className="w-3 h-3 bg-green-200 border border-green-300 rounded-sm"></div>
-                  <div className="w-3 h-3 bg-green-300 border border-green-400 rounded-sm"></div>
-                  <div className="w-3 h-3 bg-green-500 border border-green-600 rounded-sm"></div>
-                  <div className="w-3 h-3 bg-green-700 border border-green-800 rounded-sm"></div>
-                  <div className="w-3 h-3 bg-purple-600 border border-purple-700 rounded-sm ml-2"></div>
-                  <span className="ml-1">Selected</span>
+                  <div className="w-3 h-3 bg-gray-100 border border-gray-200 rounded-sm flex items-center justify-center">0</div>
+                  <div className="w-3 h-3 bg-blue-200 border border-blue-300 rounded-sm flex items-center justify-center">1</div>
+                  <div className="w-3 h-3 bg-blue-300 border border-blue-400 rounded-sm flex items-center justify-center">2</div>
+                  <div className="w-3 h-3 bg-blue-500 border border-blue-600 rounded-sm flex items-center justify-center">3</div>
+                  <div className="w-3 h-3 bg-blue-700 border border-blue-800 rounded-sm flex items-center justify-center">4+</div>
                 </div>
                 <span>More</span>
               </div>
@@ -247,11 +305,11 @@ echo "⚠️  Warning: This is for educational purposes only!"
           <Button
             onClick={() => setShowScript(!showScript)}
             disabled={selectedDates.size === 0}
-            className="bg-purple-600 hover:bg-purple-700"
+            className="bg-red-800 hover:bg-red-400"
           >
             {showScript ? "Hide Script" : "Generate Script"}
           </Button>
-          <Button variant="outline" onClick={() => setSelectedDates(new Set())} disabled={selectedDates.size === 0}>
+          <Button className="bg-green-600" onClick={() => setSelectedDates(new Map())} disabled={selectedDates.size === 0}>
             Clear Selection
           </Button>
         </div>
@@ -276,15 +334,6 @@ echo "⚠️  Warning: This is for educational purposes only!"
                   <Download className="h-4 w-4 mr-2" />
                   Download Script
                 </Button>
-              </div>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <h4 className="font-semibold text-yellow-800 mb-2">⚠️ Important Notes:</h4>
-                <ul className="text-sm text-yellow-700 space-y-1">
-                  <li>• Make sure you're in a git repository before running the script</li>
-                  <li>• This creates real commits in your repository</li>
-                  <li>• Use responsibly - this is for educational purposes</li>
-                  <li>• Remember to push your changes after running the script</li>
-                </ul>
               </div>
             </CardContent>
           </Card>
