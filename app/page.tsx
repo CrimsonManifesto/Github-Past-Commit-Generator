@@ -131,14 +131,19 @@ ${sortedDates
         ([date, count]) =>
           Array.from({ length: count })
             .map(
-              (_, i) => `
+              (_, i) => {
+                // Use a unique hour for each commit (wraps at 23)
+                const hour = (12 + i) % 24;
+                const hourStr = hour.toString().padStart(2, '0');
+                return `
 REM Commit ${i + 1} for ${date}
 echo Fake commit ${i + 1} for ${date} > temp_file_${date.replace(/-/g, "")}_${i + 1}.txt
 git add temp_file_${date.replace(/-/g, "")}_${i + 1}.txt
-set GIT_AUTHOR_DATE=${date}T12:00:00
-set GIT_COMMITTER_DATE=${date}T12:00:00
+set GIT_AUTHOR_DATE=${date}T${hourStr}:00:00
+set GIT_COMMITTER_DATE=${date}T${hourStr}:00:00
 git commit -m "Time travel commit ${i + 1} for ${date}"
-del temp_file_${date.replace(/-/g, "")}_${i + 1}.txt`
+del temp_file_${date.replace(/-/g, "")}_${i + 1}.txt`;
+              }
             )
             .join("\r\n")
       )
